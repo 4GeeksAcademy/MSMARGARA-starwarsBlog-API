@@ -61,7 +61,7 @@ def one_planet(id):
     response = planet.serialize()
     return jsonify(response), 200
 
-##Endpoint para listar todas los usuarios del blog
+##Endpoint para listar todos usuarios del blog o solo uno
 @app.route('/users', methods=['GET'])
 def all_users():
     records = User.query.all()
@@ -76,7 +76,12 @@ def get_user(user_id):
     else:
         return jsonify({"error": "Usuario no encontrado"}), 404
 
-##Endpoint para listar todas los favoritos de un usuario del blog
+##Endpoint para listar los favoritos de todos los usuarios o de uno solo
+@app.route('/user_favorites', methods=['GET'])
+def get_users_with_favorites():
+    users = User.query.all()
+    serialized_users = [user.serialize(include_fav_people=True, include_fav_planets=True) for user in users]
+    return jsonify(serialized_users), 200
 @app.route('/user_favorites/<int:user_id>', methods=['GET'])
 def get_user_favorites(user_id):
     user = User.query.get(user_id)
@@ -85,6 +90,79 @@ def get_user_favorites(user_id):
         return jsonify(serialized_favorites), 200
     else:
         return jsonify({"error": "Usuario no encontrado"}), 404
+
+# Endpoint para agregar un "people" favorito a un usuario específico
+@app.route('/add_fav_people/<int:user_id>/<int:people_id>', methods=['POST'])
+def add_fav_people(user_id, people_id):
+    user = User.query.get(user_id)
+    people = People.query.get(people_id)
+    if user and people:      
+        if people not in user.favorites_people:
+            user.favorites_people.append(people)
+            db.session.add(user)
+            db.session.commit()
+            return jsonify({"mensaje": "People agregado correctamente"}), 201
+        else:
+            return jsonify({"mensaje": "People ya se encuentra en la lista de favoritos"}), 200 
+    elif not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404  
+    else:
+        return jsonify({"error": "People no encontrado"}), 404 
+
+# Endpoint para agregar un "planeta" favorito a un usuario específico
+@app.route('/add_fav_planet/<int:user_id>/<int:planet_id>', methods=['POST'])
+def add_fav_planet(user_id, planet_id):
+    user = User.query.get(user_id)
+    planet = Planet.query.get(planet_id)
+    
+    if user and planet:      
+        if planet not in user.favorites_planets:
+            user.favorites_planets.append(planet)
+            db.session.add(user)
+            db.session.commit()
+            return jsonify({"mensaje": "Planeta agregado correctamente"}), 201
+        else:
+            return jsonify({"mensaje": "El planeta ya se encuentra en la lista de favoritos"}), 200 
+    elif not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404  
+    else:
+        return jsonify({"error": "Planeta no encontrado"}), 404 
+
+# Endpoint para eliminar un "people" favorito de un usuario específico
+@app.route('/remove_fav_people/<int:user_id>/<int:people_id>', methods=['DELETE'])
+def remove_fav_people(user_id, people_id):
+    user = User.query.get(user_id)
+    people = People.query.get(people_id)
+    
+    if user and people:      
+        if people in user.favorites_people:
+            user.favorites_people.remove(people)
+            db.session.commit()
+            return jsonify({"mensaje": "People eliminado correctamente"}), 200
+        else:
+            return jsonify({"mensaje": "People no está en la lista de favoritos del usuario"}), 404 
+    elif not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404  
+    else:
+        return jsonify({"error": "People no encontrado"}), 404 
+
+# Endpoint para eliminar un "planeta" favorito de un usuario específico
+@app.route('/remove_fav_planet/<int:user_id>/<int:planet_id>', methods=['DELETE'])
+def remove_fav_planet(user_id, planet_id):
+    user = User.query.get(user_id)
+    planet = Planet.query.get(planet_id)
+    
+    if user and planet:      
+        if planet in user.favorites_planets:
+            user.favorites_planets.remove(planet)
+            db.session.commit()
+            return jsonify({"mensaje": "Planeta eliminado correctamente"}), 200
+        else:
+            return jsonify({"mensaje": "El planeta no está en la lista de favoritos del usuario"}), 404 
+    elif not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404  
+    else:
+        return jsonify({"error": "Planeta no encontrado"}), 404 
 
 # this only runs if `$ python src/app.py` is executed
 if __name__ == '__main__':
