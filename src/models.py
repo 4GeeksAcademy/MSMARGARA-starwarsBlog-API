@@ -17,10 +17,12 @@ class User(db.Model):
     date_of_birth = db.Column(db.Date, nullable=True)
     phone_number = db.Column(db.String(10), nullable=True)
     active = db.Column(db.Boolean, nullable=False)
+    favorites_people = db.relationship("People", secondary="favorite_people", back_populates='user')
+    favorites_planets = db.relationship("Planet", secondary="favorite_planet", back_populates='user')
     
     def __repr__(self):
         return f'<User {self.name}>'
-    def serialize(self):
+    def serialize_without_favorites(self):
         return {
             "id": self.id,
             "role_id": self.role.serialize(),
@@ -28,12 +30,21 @@ class User(db.Model):
             "last_name": self.last_name,
             "email": self.email,
             "profile_pic": self.profile_pic,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
             "date_of_birth": self.date_of_birth,
             "phone_number": self.phone_number,
             "active": self.active
         }
+    def serialize(self, include_fav_people=True, include_fav_planets=True):
+        serialized_data = {
+            "User": self.name
+        }
+        if include_fav_people:
+            serialized_data["favorites_people"] = [people.name for people in self.favorites_people]
+        if include_fav_planets:
+            serialized_data["favorites_planets"] = [planet.name for planet in self.favorites_planets]
+        return serialized_data
 
 class Role(db.Model):
     __tablename__='role'
@@ -48,28 +59,30 @@ class Role(db.Model):
             "name": self.name
         }
 
-class Activity(db.Model):
-    __tablename__ = 'activity'
+class Favorite_people(db.Model):
+    __tablename__ = 'favorite_people'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    user = db.relationship("User")
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=True)
-    people = db.relationship("People")
-    planets_id = db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=True)
-    planets = db.relationship("Planet")
-    favorite = db.Column(db.Boolean, nullable=False)
-    updated_at = db.Column(db.DateTime, nullable=False)
 
-    def __repr__(self):
-        return f'<Activity {self.id}, Type: {self.activity_type}>'
     def serialize(self):
         return {
             "id": self.id,
-            "user": self.user_id.serialize(),
-            "people": self.people_id.serialize(),
-            "planet": self.planets.serialize(),
-            "favorite": self.favorite,
-            "updated_at": self.updated_at.isoformat()  
+            "user_id": self.user_id,
+            "people_id": self.people_id 
+        }
+    
+class Favorite_planet(db.Model):
+    __tablename__ = 'favorite_planet'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    planets_id = db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=True)
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "planet_id": self.planet_id 
         }
 
 class People(db.Model):
@@ -83,25 +96,22 @@ class People(db.Model):
     height = db.Column(db.String(10), nullable=False)
     mass = db.Column(db.String(10), nullable=False)
     skin_color = db.Column(db.String(10), nullable=False)
-    homeworld_id= db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=False)
-    homeworld = db.relationship("Planet")
-    films = db.relationship("PeopleFilms", back_populates = "people")
-    species = db.relationship("PeopleSpecies", back_populates = "people")
-    starships = db.relationship("PeopleStarships", back_populates ="people")
-    vehicles = db.relationship("PeopleVehicles", back_populates="people")
+    homeworld_id = db.Column(db.Integer, db.ForeignKey('planet.id'))
+    homeworld = db.relationship("Planet", back_populates="residents")
+    films = db.relationship("Film", secondary='people_films', back_populates='characters')
+    species = db.relationship("Specie", secondary='people_species', back_populates='people')
+    starships = db.relationship("Starship", secondary='people_starships', back_populates='pilots')
+    vehicles = db.relationship("Vehicle", secondary='people_vehicles', back_populates='pilots')
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
+    user = db.relationship("User",secondary="favorite_people", back_populates='favorites_people')
 
     def __repr__(self):
-        return f'<People {self.name}>'
-    def serialize(self):
-        films = list(map(lambda f: f.serialize_films_people(), self.films))
-        species = list(map(lambda s: s.serialize_species_people(), self.species))
-        starships = list(map(lambda st: st.serialize_starships_people(), self.starships))
-        vehicles = list(map(lambda v: v.serialize_vehicles_people(), self.vehicles))
-       
-        return {
+        return f'<People: {self.name}>'
+    
+    def serialize(self, include_films=True, include_species=True, include_starships=True, include_vehicles=True, include_homeworld=True):
+        serialized_data = {
             "id": self.id,
             "name": self.name,
             "birth_year": self.birth_year,
@@ -111,16 +121,22 @@ class People(db.Model):
             "height": self.height,
             "mass": self.mass,
             "skin_color": self.skin_color,
-            "homeworld": self.homeworld.serialize(),
-            "films": films,
-            "species": species,
-            "starships": starships,
-            "vehicles": vehicles,
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
-
+        if include_films:
+            serialized_data["films"] = [film.title for film in self.films]
+        if include_species:
+            serialized_data["species"] = [specie.name for specie in self.species]
+        if include_starships:
+            serialized_data["starships"] = [starship.name for starship in self.starships]
+        if include_vehicles:
+            serialized_data["vehicles"] = [vehicle.name for vehicle in self.vehicles]
+        if include_homeworld:
+            serialized_data["homeworld"] = self.homeworld.name if self.homeworld else None
+        return serialized_data
+    
 class Film(db.Model):
     __tablename__='film'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -130,41 +146,42 @@ class Film(db.Model):
     director = db.Column(db.String(50), nullable=False)
     producer = db.Column(db.String(100), nullable=False)
     realase_date = db.Column(db.Date, nullable=False)
-    species = db.relationship("FilmsSpecies", back_populates="film")
-    starships = db.relationship("FilmsStarships", back_populates="film")
-    vehicles = db.relationship("FilmsVehicles", back_populates="film")
-    characters = db.relationship("PeopleFilms", back_populates="film")
-    planets = db.relationship("FilmsPlanets", back_populates="film")
+    species = db.relationship("Specie", secondary='films_species', back_populates='films')
+    starships = db.relationship("Starship", secondary='film_starships', back_populates='films')
+    vehicles = db.relationship("Vehicle", secondary='film_vehicles', back_populates='films')
+    characters = db.relationship("People", secondary='people_films' , back_populates='films')
+    planets = db.relationship("Planet", secondary='film_planets', back_populates='films')
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
 
     def __repr__(self):
         return f'<Film {self.title}>'
-    def serialize(self):
-        species = list(map(lambda s: s.serialize_films_species(), self.species))
-        starships = list(map(lambda st: st.serialize_films_starships(), self.starships))
-        vehicles = list(map(lambda v: v.serialize_films_vehicles(), self.vehicles))
-        characters = list(map(lambda c: c.serialize_films_characters(), self.characters))
-        planets = list(map(lambda p: p.serialize_films_planets(), self.planets))
-        
-        return {
+    
+    def serialize(self, include_people=True, include_species=True, include_starships=True, include_films=True, include_planets=True):
+        serialized_data = {
             "id": self.id,
             "title": self.title,
             "episode_id": self.episode_id,
             "opening_crawl": self.opening_crawl,
             "director": self.director,
             "producer": self.producer,
-            "release_date": self.realase_date,
-            "species": species,
-            "starships": starships,
-            "vehicles": vehicles,
-            "characters": characters,
-            "planets": planets,
+            "release_date": self.realase_date.isoformat(),
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
+        if include_people:
+            serialized_data["characters"] = [character.name for character in self.characters]
+        if include_species:
+            serialized_data["species"] = [specie.name for specie in self.species]
+        if include_starships:
+            serialized_data["starship"] = [starship.name for starship in self.starships]
+        if include_films:
+            serialized_data["vehicles"] = [vehicle.name for vehicle in self.vehicles]
+        if include_planets:
+            serialized_data["planets"] = [planet.name for planet in self.planets]
+        return serialized_data
 
 class Planet (db.Model):
     __tablename__='planet'
@@ -178,18 +195,18 @@ class Planet (db.Model):
     climate = db.Column(db.String(100), nullable=False)
     terrain = db.Column(db.String(100), nullable=False)
     surface_water = db.Column(db.String(10), nullable=False)
-    residents = db.relationship("PlanetsPeople", back_populates="planet")
-    films = db.relationship("FilmsPlanets", back_populates="planet")
+    species = db.relationship("Specie", back_populates="homeworld")
+    residents = db.relationship ("People", secondary='planet_people', back_populates='homeworld')
+    films = db.relationship("Film", secondary='film_planets', back_populates="planets")
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
+    user = db.relationship("User",secondary="favorite_planet", back_populates='favorites_planets')
 
     def __repr__(self):
         return f'<Planet {self.name}>'
-    def serialize(self):
-        residents = list(map(lambda r: r.serialize_planet_residents(), self.residents))
-        films = list(map(lambda f: f.serialize_planet_films(), self.films))
-        return {
+    def serialize(self, include_films=True, include_residents=True):
+        serialized_data= {
             "id": self.id,
             "name": self.name,
             "diameter": self.diameter,
@@ -200,12 +217,15 @@ class Planet (db.Model):
             "climate": self.climate,
             "terrain": self.terrain,
             "surface_water": self.surface_water,
-            "residents": residents,
-            "films": films,
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
+        if include_films:
+            serialized_data["films"] = [film.title for film in self.films]
+        if include_residents:
+            serialized_data["residents"] = [people.name for people in self.residents]
+        return serialized_data
 
 class Specie(db.Model):
     __tablename__='specie'
@@ -219,19 +239,18 @@ class Specie(db.Model):
     hair_colors = db.Column(db.String(100), nullable=False)
     skin_color = db.Column(db.String(100), nullable=False)
     language = db.Column(db.String(15), nullable=False)
-    homeworld = db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=True)
-    people = db.relationship("PeopleSpecies", back_populates="specie")
-    films = db.relationship("FilmsSpecies", back_populates="specie")
+    homeworld_id = db.Column(db.Integer, db.ForeignKey('planet.id'))
+    homeworld = db.relationship("Planet", back_populates="species")
+    people = db.relationship("People", secondary='people_species', back_populates="species")
+    films = db.relationship("Film", secondary='films_species', back_populates="species")
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
 
     def __repr__(self):
         return f'<Specie {self.name}>'
-    def serialize(self):
-        people = list(map(lambda p: p.serialize_specie_people(), self.people))
-        films = list(map(lambda f: f.serialize_specie_films(), self.films))
-        return {
+    def serialize(self, include_people=True, include_films=True, include_homeworld=True):
+        serialized_data = {
             "id": self.id,
             "name": self.name,
             "classification": self.classification,
@@ -242,13 +261,17 @@ class Specie(db.Model):
             "hair_colors": self.hair_colors,
             "skin_color": self.skin_color,
             "language": self.language,
-            "homeworld": self.homeworld,
-            "people": people,
-            "films": films,
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
+        if include_people:
+            serialized_data["people"] = [person.name for person in self.people]
+        if include_films:
+            serialized_data["film"] = [film.title for film in self.films]
+        if include_homeworld:
+            serialized_data["homeworld"] = self.homeworld.name if self.homeworld else None
+        return serialized_data
 
 class Vehicle(db.Model):
     __tablename__='vehicle'
@@ -264,18 +287,16 @@ class Vehicle(db.Model):
     max_atmosphering_speed = db.Column(db.String(10), nullable=False)
     cargo_capacity = db.Column(db.String(10), nullable=False)
     consumables = db.Column(db.String(20), nullable=False)
-    films = db.relationship("FilmsVehicles", back_populates="vehicle")
-    pilots = db.relationship("PeopleVehicles", back_populates="vehicle")
+    films = db.relationship("Film", secondary='film_vehicles', back_populates="vehicles")
+    pilots = db.relationship("People", secondary='people_vehicles', back_populates="vehicles")
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
 
     def __repr__(self):
         return f'<Vehicle {self.name}>'
-    def serialize(self):
-        films = list(map(lambda f: f.serialize_vehicle_films(), self.films))
-        pilots = list(map(lambda p: p.serialize_vehicle_pilots(), self.pilots))
-        return {
+    def serialize(self, include_pilots=True, include_films=True):
+        serialized_data = {
             "id": self.id,
             "name": self.name,
             "model": self.model,
@@ -288,13 +309,16 @@ class Vehicle(db.Model):
             "max_atmosphering_speed": self.max_atmosphering_speed,
             "cargo_capacity": self.cargo_capacity,
             "consumables": self.consumables,
-            "films": films,
-            "pilots": pilots,
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
-
+        if include_pilots:
+            serialized_data["pilots"] = [people.name for people in self.pilots]
+        if include_films:
+            serialized_data["films"] = [film.title for film in self.films]
+        return serialized_data
+    
 class Starship(db.Model):
     __tablename__='starship'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -311,18 +335,16 @@ class Starship(db.Model):
     mglt = db.Column(db.String(20), nullable=False)       
     cargo_capacity = db.Column(db.String(10), nullable=False)
     consumables = db.Column(db.String(20), nullable=False)
-    films = db.relationship("FilmsStarships", back_populates="starship")
-    pilots = db.relationship("PeopleStarships", back_populates="starship")
+    films = db.relationship("Film", secondary='film_starships', back_populates="starships")
+    pilots = db.relationship("People", secondary='people_starships', back_populates='starships')
     url = db.Column(db.String(250), nullable=False)
     created = db.Column(db.String(50), nullable = False)
     edited = db.Column(db.String(50), nullable = False)
 
     def __repr__(self):
         return f'<Starship {self.name}>'
-    def serialize(self):
-        films = list(map(lambda f: f.serialize_starship_films(), self.films))
-        pilots = list(map(lambda p: p.serialize_starship_pilots(), self.pilots))
-        return {
+    def serialize(self, include_pilots=True, include_films=True):
+        serialized_data= {
             "id": self.id,
             "name": self.name,
             "model": self.model,
@@ -337,177 +359,132 @@ class Starship(db.Model):
             "mglt": self.mglt,
             "cargo_capacity": self.cargo_capacity,
             "consumables": self.consumables,
-            "films": films,
-            "pilots": pilots,
             "url": self.url,
             "created": self.created,
             "edited": self.edited
         }
+        if include_pilots:
+            serialized_data["pilots"] = [people.name for people in self.pilots]
+        if include_films:
+            serialized_data["films"] = [film.title for film in self.films]
+        return serialized_data
 
 class PeopleFilms(db.Model):
-    __tablename__='people_films'
+    __tablename__ = 'people_films'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=False)
-    people = db.relationship("People")
     film_id = db.Column(db.Integer, db.ForeignKey('film.id'), nullable=False)
-    film = db.relationship("Film")
 
-    def __repr__(self):
-        return f'<PeopleFilms {self.id}>'
-    def serialize_films_people(self):
+    def serialize(self):
         return {
-            "films": self.film.serialize()
+            "id": self.id,
+            "people_id": self.people_id,
+            "film_id": self.film_id_id 
         }
-    def serialize_films_characters(self):
-        return{
-            "people": self.people.serialize()
-        }
-
+    
 class PeopleSpecies(db.Model):
     __tablename__='people_species'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=False)
-    people = db.relationship("People")
     specie_id = db.Column(db.Integer, db.ForeignKey('specie.id'), nullable=False)
-    specie = db.relationship("Specie")
 
-    def __repr__(self):
-        return f'<PeopleSpecies {self.id}>'
-    def serialize_species_people(self):
+    def serialize(self):
         return {
-            "species": self.specie.serialize()
+            "id": self.id,
+            "people_id": self.people_id,
+            "specie_id": self.specie_id
         }
-    def serialize_specie_people(self):
-        return{
-            "people": self.people.serialize()
-        }
-    
+     
 class PeopleStarships(db.Model):
     __tablename__='people_starships'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=False)
-    people = db.relationship("People")
     starship_id = db.Column(db.Integer, db.ForeignKey('starship.id'), nullable=False)
-    starship = db.relationship("Starship")
 
-    def __repr__(self):
-        return f'<PeopleStarships {self.id}>'
-    def serialize_starships_people(self):
+    def serialize(self):
         return {
-            "starships": self.starship.serialize()
+            "id": self.id,
+            "people_id": self.people_id,
+            "starship_id": self.starship_id
         }
-    def serialize_starship_pilots(self):
-        return{
-            "people": self.people.serialize()
-        }
-
+    
 class PeopleVehicles(db.Model):
     __tablename__='people_vehicles'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=False)
-    people = db.relationship("People")
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
-    vehicle = db.relationship("Vehicle")
 
-    def __repr__(self):
-        return f'<PeopleVehicles {self.id}>'
-    def serialize_vehicles_people(self):
+    def serialize(self):
         return {
-            "vehicles": self.vehicle.serialize()
+            "id": self.id,
+            "people_id": self.people_id,
+            "vehicle_id": self.vehicle_id
         }
-    def serialize_vehicle_pilots(self):
-        return{
-            "people": self.people.serialize()
-        }
-
+    
 class PlanetsPeople(db.Model):
     __tablename__='planet_people'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     people_id = db.Column(db.Integer, db.ForeignKey('people.id'), nullable=False)
-    people = db.relationship("People")
     planet_id = db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=False)
-    planet = db.relationship("Planet")
 
-    def __repr__(self):
-        return f'<PlanetsPeople {self.id}>'
-    def serialize_planet_residents(self):
-        return {
-            "people": self.people.serialize()
-        }
+    def serialize(self):
+            return {
+                "id": self.id,
+                "people_id": self.people_id,
+                "planet_id": self.planet_id
+            }
     
 class FilmsSpecies(db.Model):
     __tablename__='films_species'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     film_id = db.Column(db.Integer, db.ForeignKey('film.id'), nullable=False)
-    film = db.relationship("Film")
     specie_id = db.Column(db.Integer, db.ForeignKey('specie.id'), nullable=False)
-    specie = db.relationship("Specie")
 
-    def __repr__(self):
-        return f'<FilmsSpecies {self.id}>'
-    def serialize_films_species(self):
+    def serialize(self):
         return {
-            "species": self.specie.serialize()
+            "id": self.id,
+            "film_id": self.film_id_id,
+            "specie_id": self.specie_id
         }
-    def serialize_specie_films(self):
-        return{
-            "films": self.film.serialize()
-        }
-    
+        
 class FilmsStarships(db.Model):
     __tablename__='film_starships'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     film_id = db.Column(db.Integer, db.ForeignKey('film.id'), nullable=False)
-    film = db.relationship("Film")
     starship_id = db.Column(db.Integer, db.ForeignKey('starship.id'), nullable=False)
-    starship = db.relationship("Starship")
-    
-    def __repr__(self):
-        return f'<FilmsStarships {self.id}>'
-    def serialize_films_starships(self):
-        return {
-            "starships": self.starship.serialize()
-        }
-    def serialize_starship_films(self):
-        return{
-            "films": self.film.serialize()
-        }
 
+    def serialize(self):
+        return {
+            "id": self.id,
+            "film_id": self.film_id_id,
+            "starship_id": self.starship_id
+        }
+    
 class FilmsVehicles(db.Model):
     __tablename__='film_vehicles'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     film_id = db.Column(db.Integer, db.ForeignKey('film.id'), nullable=False)
-    film = db.relationship("Film")
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
-    vehicle = db.relationship("Vehicle")
 
-    def __repr__(self):
-        return f'<FilmsVehicles {self.id}>'
-    def serialize_films_vehicles(self):
+    def serialize(self):
         return {
-            "vehicles": self.vehicle.serialize()
-        }
-    def serialize_vehicle_films(self):
-        return{
-            "films": self.film.serialize()
+            "id": self.id,
+            "film_id": self.film_id,
+            "vehicle_id": self.vehicle_id
         }
 
 class FilmsPlanets(db.Model):
     __tablename__='film_planets'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     film_id = db.Column(db.Integer, db.ForeignKey('film.id'), nullable=False)
-    film = db.relationship("Film")
     planet_id = db.Column(db.Integer, db.ForeignKey('planet.id'), nullable=False)
-    planet = db.relationship("Planet")
 
-    def __repr__(self):
-        return f'<FilmsPlanets {self.id}>'
-    def serialize_films_planets(self):
+    def serialize(self):
         return {
-            "planets": self.planet.serialize()
+            "id": self.id,
+            "film_id": self.film_id_id,
+            "planet_id": self.planet_id
         }
-    def serialize_planet_films(self):
-        return{
-            "films": self.film.serialize()
-        }
+    
+   
 
